@@ -24,3 +24,9 @@ recursive delete
 Get-ChildItem -Path .\ -Include *.pdf -File -Recurse | foreach { $_.Delete()}
 
 Remove-Item -Path "C:\Users\bpalani\Downloads\Legal documents-20180924T070807Z-001\Legal documents\unzipped\*.*" -force -recurse
+
+get-aduser
+
+PS C:\Windows\system32> Get-ADUser -filter 'mail -like "*cat.com"' -Properties LastLogonTimeStamp | Select-Object Name,U
+serPrincipalName,@{Name="Stamp"; Expression={[DateTime]::FromFileTime($_.lastLogonTimestamp).ToString('yyyy-MM-dd_hh:mm:
+ss')}} | Export-Csv -Path $Path –notypeinformation
