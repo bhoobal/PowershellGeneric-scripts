@@ -1,0 +1,116 @@
+https://github.com/bhoobal
+
+# This script runs all the necessary scripts for setting up a deployment
+Set-ExecutionPolicy Unrestricted 
+
+$scriptout = "C:\temp\ScriptOutput.txt"
+if (Test-Path $scriptout) # if file exists the install has already been done
+{
+  Remove-Item $scriptout
+}
+
+# Redirect output to a text file if not run in a console
+if ($Host.Name -eq "Windows PowerShell ISE Host") {
+    $ISE=$true
+} else {
+    $ISE=$false
+    }
+
+if (-Not $ISE) {
+    $ErrorActionPreference="SilentlyContinue"
+    Stop-Transcript | out-null
+    $ErrorActionPreference = "Continue"
+    Start-Transcript -path $scriptout -append
+    }
+
+# Variable Declares
+$updateFile = "c:\dartifacts\ConfigUpdates.txt"
+$installLog ="c:\temp\InstallLog.txt"
+
+# Log start
+$LogTime = Get-Date -Format "dd-MMM-yyyy_hh-mm-ss"
+Add-Content $installLog ("*** Onebox Install Begin ***" + $LogTime)
+# Add content to the file
+
+
+# Another check if this script has already been run
+if (Get-Service "someService" -ErrorAction SilentlyContinue)
+{
+  Write-Host Service already exists
+  Add-Content $installLog ("Service already exists. Exiting script")
+  Exit
+}
+
+$LogTime2 = Get-Date -Format "dd-MMM-yyyy_hh-mm-ss"
+
+
+
+if (-Not $ISE) {
+    Stop-Transcript
+    }
+
+#defining parameter
+
+param (
+    [string]$TargetUrl = $(throw "-TargetUrl is required."),
+    [string]$TestContainer = $(throw "-TestContainer is required."),
+    [string]$TestSettings = $(throw "-TestSettings are required."),
+
+)
+$ErrorActionPreference = "Stop" # http://stackoverflow.com/questions/9948517/how-to-stop-a-powershell-script-on-the-first-error
+
+# Configure the acceptance tests
+function configureAcceptanceTests {
+    [xml]$config = Get-Content "$TestContainer.config"
+
+    $baseUrl = $config.SelectSingleNode("/configuration/appSettings/add[@key='BaseUrl']")
+    $baseUrl.SetAttribute("value", $TargetUrl + "#/")
+
+    $browserSize = $config.SelectSingleNode("/configuration/appSettings/add[@key='Browser.DefaultSize']")
+    $browserSize.SetAttribute("value", $WindowSize)
+
+    $browserSize = $config.SelectSingleNode("/configuration/appSettings/add[@key='Browser.Type']")
+    $browserSize.SetAttribute("value", $Browser)
+
+    $enableChromeVerboseLogging = $config.SelectSingleNode("/configuration/appSettings/add[@key='EnableChromeVerboseLogging']")
+    if($enableChromeVerboseLogging){
+        $enableChromeVerboseLogging.SetAttribute("value", $EnableChromeVerboseLog);
+    }
+    $config.Save((Resolve-Path "$TestContainer.config"))
+}
+
+
+ $StartTime = $(get-date)
+	Start-Job -FilePath .\RunTestTag.ps1 -ArgumentList $CurrentPath,$testdll,$testSettings,"mapprofile","$testResults-mapprofile.trx"
+	Start-Sleep -s 10
+	Start-Job -FilePath .\RunTestTag.ps1 -ArgumentList $CurrentPath,$testdll,$testSettings,"fileio","$testResults-fileio.trx"
+	Start-Sleep -s 10
+	Start-Job -FilePath .\RunTestTag.ps1 -ArgumentList $CurrentPath,$testdll,$testSettings,"preferences","$testResults-preferences.trx"
+
+	Get-Job | Wait-Job
+	Get-Job | Receive-Job
+	Get-Job | Remove-Job
+
+
+f ($FeatureTag -eq 'All' -OR $FeatureTag -eq 'null') 
+{
+ Write-Host " ---- Running ALL tests ------ ";
+ threadAcceptanceTests;
+}
+else
+{
+ threadOneAcceptanceTest; 
+}  
+
+
+if (-Not $ISE) {
+    $ErrorActionPreference="SilentlyContinue"
+    Stop-Transcript | out-null
+    $ErrorActionPreference = "Continue"
+    Start-Transcript -path $scriptout -append
+    } # output will redirect to output file if not run in IDE
+
+#in jenkins
+ bat "PowerShell.exe -ExecutionPolicy Bypass -Command .\\powershell-scripts\\AcceptanceTests.ps1 -UIEnvironment ${uiEnvironment} -BranchName ${branchName} -Browser ${browser} -WindowSize ${windowSize} -Category \"${category}\""
+
+  
