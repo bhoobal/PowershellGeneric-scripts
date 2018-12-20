@@ -1,0 +1,152 @@
+param (
+		[Parameter(Mandatory=$True)]
+		[ValidateNotNullOrEmpty()]
+		[string]$DNSName,
+		[Parameter(Mandatory=$True)]
+		[string]$dnsType,
+		[Parameter(Mandatory=$True)]
+		[string]$aliasType,
+		[Parameter(Mandatory=$True)]
+		[ValidateNotNullOrEmpty()]
+		[string]$ELBorIPAddress,
+        [Parameter(ValueFromRemainingArguments=$true)]$xtras
+		)
+
+Function New-R53ResourceRecordSet{
+	param(
+	[Parameter(Mandatory=$True,Position=1)]
+        [String]$ProfileName,
+        [Parameter(Mandatory=$True)]
+        [String]$Value,
+	[Parameter(Mandatory=$True)] [ValidateSet("CNAME","A","AAAA","MX","TXT","PTR","SRV","SPF","NS","SOA")]
+        $Type,
+	[Parameter(Mandatory=$True)]
+        $RecordName,
+	[Parameter(Mandatory=$True)]
+        $TTL,
+	[Parameter(Mandatory=$True)]
+        $ZoneName,
+        [Parameter(Mandatory=$False)]
+        $Comment
+	)
+ 
+	$ZoneEntry = (Get-R53HostedZones -ProfileName $ProfileName) | ? {$_.Name -eq "$($ZoneName)."}
+	
+	If($ZoneEntry){
+	        $CreateRecord = New-Object Amazon.Route53.Model.Change
+                $CreateRecord.Action = "CREATE"
+                $CreateRecord.ResourceRecordSet = New-Object Amazon.Route53.Model.ResourceRecordSet
+                $CreateRecord.ResourceRecordSet.Name = "$RecordName.$ZoneName"
+                $CreateRecord.ResourceRecordSet.Type = $Type
+                $CreateRecord.ResourceRecordSet.TTL = $TTL
+                $CreateRecord.ResourceRecordSet.ResourceRecords.Add(@{Value="$Value"})
+	        Edit-R53ResourceRecordSet -ProfileName $ProfileName -HostedZoneId $ZoneEntry.Id -ChangeBatch_Change $CreateRecord -ChangeBatch_Comment $Comment
+	}Else {Write-Host "Zone name '$ZoneName' not found using AWS Profile $ProfileName"}
+}
+
+
+Function Update-R53ResourceRecordSet
+        {
+		
+                        param(
+                        [Parameter(Mandatory=$False,Position=1)][String]$ProfileName,
+                [Parameter(Mandatory=$True)][String]$Value,
+                        [Parameter(Mandatory=$True)][ValidateSet("CNAME","A","AAAA","MX","TXT","PTR","SRV","SPF","NS","SOA")]$Type,
+                        [Parameter(Mandatory=$True)]$RecordName,
+                        [Parameter(Mandatory=$True)]$TTL,
+                        [Parameter(Mandatory=$True)]$ZoneName,
+                [Parameter(Mandatory=$False)]$Comment
+                        )
+         
+                        #$ZoneEntry = (Get-R53HostedZones -ProfileName $ProfileName) | ? {$_.Name -eq "$($ZoneName)."}
+                        $ZoneEntry = (Get-R53HostedZones -ProfileName $ProfileName) | Where-Object {$_.Name -eq "$($ZoneName)."}
+                        
+                        If($ZoneEntry){
+                                $CreateRecord = New-Object Amazon.Route53.Model.Change
+                        $CreateRecord.Action = "UPSERT"
+                        $CreateRecord.ResourceRecordSet = New-Object Amazon.Route53.Model.ResourceRecordSet
+                        $CreateRecord.ResourceRecordSet.Name = "$RecordName.$ZoneName"
+                        $CreateRecord.ResourceRecordSet.Type = $Type
+                        $CreateRecord.ResourceRecordSet.TTL = $TTL
+			$CreateRecord.ResourceRecordSet.ResourceRecords.Add(@{Value="$Value"})
+			Write-Host $ZoneEntry.Id
+			Write-Host $ProfileName
+			Write-Host $CreateRecord
+			Write-Host $Comment
+			Write-Host $ZoneName
+
+                                        Edit-R53ResourceRecordSet -ProfileName $ProfileName -HostedZoneId $ZoneEntry.Id -ChangeBatch_Change $CreateRecord -ChangeBatch_Comment $Comment
+                        } Else {
+                                        Write-Host "Zone name '$ZoneName' not found using AWS Profile"
+                               }
+        }
+		
+		Function Update-ELBR53ResourceRecordSet
+        {
+                        param(
+                        [Parameter(Mandatory=$False,Position=1)][String]$ProfileName,
+			[Parameter(Mandatory=$True)][String]$Value,
+                        [Parameter(Mandatory=$True)][ValidateSet("CNAME","A","AAAA","MX","TXT","PTR","SRV","SPF","NS","SOA")]$Type,
+                        [Parameter(Mandatory=$True)]$RecordName,                      
+                        [Parameter(Mandatory=$True)]$ZoneName,
+			[Parameter(Mandatory=$False)]$Comment
+                        )
+                      
+                        $ZoneEntry = (Get-R53HostedZones -ProfileName $ProfileName) | ? {$_.Name -eq "$($ZoneName)."}
+                        
+                        If($ZoneEntry){
+                        $CreateRecord = New-Object Amazon.Route53.Model.Change
+                        $CreateRecord.Action = "UPSERT"
+                        $CreateRecord.ResourceRecordSet = New-Object Amazon.Route53.Model.ResourceRecordSet
+                        $CreateRecord.ResourceRecordSet.Name = "$RecordName.$ZoneName"
+                        $CreateRecord.ResourceRecordSet.Type = $Type
+						$CreateRecord.ResourceRecordSet.AliasTarget = New-Object Amazon.Route53.Model.AliasTarget
+						$CreateRecord.ResourceRecordSet.AliasTarget.HostedZoneId = "zoneid"
+						$CreateRecord.ResourceRecordSet.AliasTarget.DNSName = "$Value"
+                        
+                        Edit-R53ResourceRecordSet -ProfileName $ProfileName -HostedZoneId $ZoneEntry.Id -ChangeBatch_Change $CreateRecord -ChangeBatch_Comment $Comment
+                        } 
+						Else 	{
+                                        Write-Host "Zone name '$ZoneName' not found using AWS Profile"
+								}
+        }
+		
+		
+		try
+			{
+		
+			if ($aliasType -eq "IPAddress")
+				{
+					if($dnsType -eq "Update")
+					{
+						#Update Domain Name New VSS
+						Update-R53ResourceRecordSet -profileName vss-merino -value $ELBorIPAddress -type A -RecordName $DNSName -TTL 500 -ZoneName vssengg.com
+					}
+					ElseIf($dnsType -eq "Add")
+					{
+						#Add DNS Entry
+						New-R53ResourceRecordSet -profileName vss-merino -value $ELBorIPAddress -type A -RecordName $DNSName -TTL 500 -ZoneName vssengg.com
+					}
+					Else
+					{
+						Write-Host "No action"
+					}
+				}
+				ElseIf($aliasType -eq "ELB")
+					{
+						Update-ELBR53ResourceRecordSet -profileName vss-merino -value $ELBorIPAddress -type A -RecordName $DNSName -ZoneName vssengg.com					
+					}	
+				Else
+					{
+						Write-Host "No action"
+					}		
+			}
+		catch
+			{
+				Write-Host "Failure"
+			}
+		
+		
+		# Usage 
+		# Example ".\Route53DNSUpdate.ps1 $env:DNSName $env:dnsType $env:AliasType $env:ELBorIPAddress"
+		
